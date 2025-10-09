@@ -1,6 +1,24 @@
 # hdlbits
 
+## CI automation overview
 
+- `scripts/generate_filelists.py` 스크립트는 `v/` 디렉터리의 Verilog 소스 목록을 자동으로 생성해 `listfile/rtl.f`를 최신 상태로 유지합니다.
+- `scripts/run_iverilog_checks.sh`는 `iverilog`를 이용해 컴파일/엘라보레이션을 수행하고, 결과를 `build/reports/iverilog_*.json`으로 요약합니다. 각 실행 로그와 의존성(`*.d`) 정보가 함께 기록됩니다.
+- `scripts/run_yosys_synth.sh`는 각 Verilog 소스를 개별적으로 합성하고 `build/synth/*.json` 넷리스트와 `build/reports/*.stat.json` 통계를 생성합니다. 모든 결과는 `build/reports/yosys_runs_report.json` 및 `build/reports/yosys_synth_summary.json`으로 집계됩니다.
+- `tools/report_utils.py` 모듈은 위 스크립트들이 호출하는 공용 도움 함수를 제공하며, `pytest --cov=tools --cov-fail-under=100`으로 100% 커버리지 테스트를 유지합니다.
+- GitLab CI 파이프라인은 `generate -> compile -> elaborate -> synth -> unit:test` 순으로 실행되며, 실패 여부와 관계없이 `build/reports/` 아티팩트를 업로드합니다.
+
+로컬 검증은 아래 명령으로 수행할 수 있습니다.
+
+```bash
+conda install -y -c conda-forge yosys       # 최초 1회
+pip install pytest pytest-cov              # 최초 1회
+./scripts/generate_filelists.py
+./scripts/run_iverilog_checks.sh listfile/rtl.f compile
+./scripts/run_iverilog_checks.sh listfile/rtl.f elaborate
+./scripts/run_yosys_synth.sh listfile/rtl.f
+pytest --cov=tools --cov-report=term --cov-fail-under=100
+```
 
 ## Getting started
 

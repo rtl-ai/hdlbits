@@ -1,8 +1,82 @@
-stages: [test, secret-detection]
+stages:
+  - filelist
+  - compile
+  - elaborate
+  - synth
+  - test
+  - secret-detection
+
+variables:
+  PYTHONUNBUFFERED: "1"
+  SECRET_DETECTION_ENABLED: "true"
 
 include:
   - template: Security/SAST.gitlab-ci.yml
   - template: Security/Secret-Detection.gitlab-ci.yml
 
-variables:
-  SECRET_DETECTION_ENABLED: "true"
+generate:filelist:
+  stage: filelist
+  image: python:3.11-slim
+  script:
+    - python3 scripts/generate_filelists.py
+  artifacts:
+    paths:
+      - listfile/rtl.f
+    expire_in: 1 week
+
+compile:iverilog:
+  stage: compile
+  image: hdlc/iverilog:latest
+  needs: ["generate:filelist"]
+  script:
+    - ./scripts/run_iverilog_checks.sh listfile/rtl.f compile
+  artifacts:
+    when: always
+    paths:
+      - build/reports
+    expire_in: 1 week
+
+elaborate:iverilog:
+  stage: elaborate
+  image: hdlc/iverilog:latest
+  needs: ["generate:filelist"]
+  script:
+    - ./scripts/run_iverilog_checks.sh listfile/rtl.f elaborate
+  artifacts:
+    paths:
+      - build/elab
+      - build/reports
+    expire_in: 1 week
+    when: always
+
+synth:yosys:
+  stage: synth
+  image: debian:bookworm-slim
+  needs: ["generate:filelist"]
+  before_script:
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends yosys
+    - apt-get clean
+    - rm -rf /var/lib/apt/lists/*
+  script:
+    - ./scripts/run_yosys_synth.sh listfile/rtl.f
+  artifacts:
+    paths:
+      - build/synth
+      - build/reports
+    expire_in: 1 week
+    when: always
+
+unit:test:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - pip install --no-cache-dir pytest pytest-cov
+  script:
+    - pytest --cov=tools --cov-report=term --cov-report=xml --cov-fail-under=100
+  artifacts:
+    when: always
+    paths:
+      - coverage.xml
+      - .coverage
+  needs: []
