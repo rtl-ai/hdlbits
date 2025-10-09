@@ -6,106 +6,44 @@
 - `scripts/run_iverilog_checks.sh`는 `iverilog`를 이용해 컴파일/엘라보레이션을 수행하고, 결과를 `build/reports/iverilog_*.json`으로 요약합니다. 각 실행 로그와 의존성(`*.d`) 정보가 함께 기록됩니다.
 - `scripts/run_yosys_synth.sh`는 각 Verilog 소스를 개별적으로 합성하고 `build/synth/*.json` 넷리스트와 `build/reports/*.stat.json` 통계를 생성합니다. 모든 결과는 `build/reports/yosys_runs_report.json` 및 `build/reports/yosys_synth_summary.json`으로 집계됩니다.
 - `tools/report_utils.py` 모듈은 위 스크립트들이 호출하는 공용 도움 함수를 제공하며, `pytest --cov=tools --cov-fail-under=100`으로 100% 커버리지 테스트를 유지합니다.
-- GitLab CI 파이프라인은 `generate -> compile -> elaborate -> synth -> unit:test` 순으로 실행되며, 실패 여부와 관계없이 `build/reports/` 아티팩트를 업로드합니다.
+- GitLab CI 파이프라인은 `generate -> compile -> elaborate -> synth -> unit:test` 순으로 실행되며, 모든 단계에서 `uv venv py312 --python=3.12.11`로 생성한 임시 환경을 사용해 Python 유틸리티를 실행합니다. 실패 여부와 관계없이 `build/reports/` 아티팩트를 업로드합니다.
 
-로컬 검증은 아래 명령으로 수행할 수 있습니다.
+## Local development workflow
+
+CI와 동일하게 `uv` 기반 Python 3.12 환경을 사용하여 툴링을 실행하세요.
+
+### 1. Prerequisites
+
+- [`uv`](https://docs.astral.sh/uv/) 0.4 이상
+- `iverilog`, `yosys` (패키지 매니저나 사내 이미지에 설치되어 있어야 합니다)
+
+### 2. Create or refresh the virtual environment
 
 ```bash
-conda install -y -c conda-forge yosys       # 최초 1회
-pip install pytest pytest-cov              # 최초 1회
-./scripts/generate_filelists.py
+uv venv py312 --python=3.12.11
+source py312/bin/activate
+uv pip install pytest pytest-cov
+```
+
+위 명령은 로컬 디렉터리에 `py312/` 가상환경을 만들고, 테스트 스위트에 필요한 Python 패키지를 설치합니다. 이미 환경이 있다면 `uv venv ...` 명령은 Python 버전만 확인하고 그대로 둡니다.
+
+환경을 활성화하지 않고 실행하려면 `uv run --python py312/bin/python <command>` 형태로 대체할 수도 있습니다.
+
+### 3. Run HDL automation scripts
+
+```bash
+python scripts/generate_filelists.py
 ./scripts/run_iverilog_checks.sh listfile/rtl.f compile
 ./scripts/run_iverilog_checks.sh listfile/rtl.f elaborate
 ./scripts/run_yosys_synth.sh listfile/rtl.f
+```
+
+각 스크립트는 `build/`와 `listfile/` 아래에 결과물을 생성하므로, 새로운 run 전에 필요하다면 디렉터리를 정리하세요.
+
+### 4. Execute unit tests
+
+```bash
 pytest --cov=tools --cov-report=term --cov-fail-under=100
 ```
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/rtl6134708/rtl_code/hdlbits.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-- [ ] [Set up project integrations](https://gitlab.com/rtl6134708/rtl_code/hdlbits/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+가상환경을 비활성화하려면 `deactivate`를 실행하면 됩니다.
