@@ -19,26 +19,73 @@ fi
 case "${mode}" in
   compile)
     echo "Running iverilog syntax checks using ${manifest}"
-    while IFS= read -r src; do
-      [[ -z "${src}" ]] && continue
-      echo "  -> iverilog -tnull ${src}"
-      iverilog -g2012 -tnull "${src}"
-    done < "${manifest}"
     ;;
   elaborate)
     echo "Running iverilog elaboration checks using ${manifest}"
-    build_dir="build/elab"
-    mkdir -p "${build_dir}"
-    while IFS= read -r src; do
-      [[ -z "${src}" ]] && continue
-      stem="$(basename "${src}" .v)"
-      out="${build_dir}/${stem}.vvp"
-      echo "  -> iverilog -o ${out} ${src}"
-      iverilog -g2012 -o "${out}" "${src}"
-    done < "${manifest}"
     ;;
   *)
     echo "Unsupported mode: ${mode}" >&2
     exit 1
     ;;
 esac
+
+report_dir="build/reports"
+deps_dir="build/deps"
+mkdir -p "${report_dir}" "${deps_dir}"
+
+tmp_json="${report_dir}/iverilog_${mode}_runs.jsonl"
+: > "${tmp_json}"
+
+overall_rc=0
+
+while IFS= read -r src; do
+  [[ -z "${src}" ]] && continue
+  stem="$(basename "${src}" .v)"
+  dep_file="${deps_dir}/${stem}.${mode}.d"
+  log_file="${report_dir}/${stem}.${mode}.log"
+  out=""
+  printf '  -> iverilog (%s) %s\n' "${mode}" "${src}"
+
+  if [[ "${mode}" == "compile" ]]; then
+    cmd=(iverilog -g2012 -tnull -M "${dep_file}" -o /dev/null "${src}")
+  else
+    build_dir="build/elab"
+    mkdir -p "${build_dir}"
+    out="${build_dir}/${stem}.vvp"
+    cmd=(iverilog -g2012 -M "${dep_file}" -o "${out}" "${src}")
+  fi
+
+  if "${cmd[@]}" >"${log_file}" 2>&1; then
+    status="passed"
+  else
+    status="failed"
+    overall_rc=1
+  fi
+
+  cmd_display=$(printf '%q ' "${cmd[@]}")
+  export SRC="${src}"
+  export MODE="${mode}"
+  export STATUS="${status}"
+  export CMD="${cmd_display}"
+  export LOG_FILE="${log_file}"
+  export DEP_FILE="${dep_file}"
+  export OUTPUT_PATH="${out:-}"
+
+  python3 -m tools.report_utils iverilog-entry \
+    --jsonl "${tmp_json}" \
+    --source "${src}" \
+    --mode "${mode}" \
+    --status "${status}" \
+    --command "${cmd_display}" \
+    --log-path "${log_file}" \
+    --dep-path "${dep_file}" \
+    ${out:+--output-artifact "${out}"}
+done < "${manifest}"
+
+python3 -m tools.report_utils jsonl-to-json \
+  --input "${tmp_json}" \
+  --output "${report_dir}/iverilog_${mode}_report.json"
+
+rm -f "${tmp_json}"
+
+exit ${overall_rc}
