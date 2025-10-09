@@ -1,8 +1,54 @@
-stages: [test, secret-detection]
+stages:
+  - filelist
+  - compile
+  - elaborate
+  - synth
+  - test
+  - secret-detection
+
+variables:
+  PYTHONUNBUFFERED: "1"
+  SECRET_DETECTION_ENABLED: "true"
 
 include:
   - template: Security/SAST.gitlab-ci.yml
   - template: Security/Secret-Detection.gitlab-ci.yml
 
-variables:
-  SECRET_DETECTION_ENABLED: "true"
+generate:filelist:
+  stage: filelist
+  image: python:3.11-slim
+  script:
+    - python3 scripts/generate_filelists.py
+  artifacts:
+    paths:
+      - listfile/rtl.f
+    expire_in: 1 week
+
+compile:iverilog:
+  stage: compile
+  image: hdlc/iverilog:latest
+  needs: ["generate:filelist"]
+  script:
+    - ./scripts/run_iverilog_checks.sh listfile/rtl.f compile
+
+elaborate:iverilog:
+  stage: elaborate
+  image: hdlc/iverilog:latest
+  needs: ["generate:filelist"]
+  script:
+    - ./scripts/run_iverilog_checks.sh listfile/rtl.f elaborate
+  artifacts:
+    paths:
+      - build/elab
+    expire_in: 1 week
+
+synth:yosys:
+  stage: synth
+  image: yosyshq/yosys:latest
+  needs: ["generate:filelist"]
+  script:
+    - ./scripts/run_yosys_synth.sh listfile/rtl.f
+  artifacts:
+    paths:
+      - build/synth
+    expire_in: 1 week

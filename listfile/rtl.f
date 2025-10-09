@@ -1,0 +1,13 @@
+v/00_step_one.v
+v/01_zero.v
+v/02_wire.v
+v/03_wire4.v
+v/04_notgate.v
+v/05_andgate.v
+v/06_norgate.v
+v/07_xnorgate.v
+v/08_wire_decl.v
+v/09_7458.v
+v/10_vector0.v
+v/11_vector1.v
+v/12_vector2.v
