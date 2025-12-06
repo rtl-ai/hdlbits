@@ -16,7 +16,8 @@ fi
 
 out_dir="build/synth"
 report_dir="build/reports"
-mkdir -p "${out_dir}" "${report_dir}"
+metrics_dir="build/metrics"
+mkdir -p "${out_dir}" "${report_dir}" "${metrics_dir}"
 
 tmp_json="${report_dir}/yosys_runs.jsonl"
 : > "${tmp_json}"
@@ -83,5 +84,10 @@ if ((${#stat_files[@]} > 0)); then
 else
   printf '[]' > "${report_dir}/yosys_synth_summary.json"
 fi
+
+python3 -m tools.metrics yosys \
+  --report "${report_dir}/yosys_runs_report.json" \
+  --stage "synth" \
+  --output "${metrics_dir}/synth_metrics.json"
 
 exit ${overall_rc}

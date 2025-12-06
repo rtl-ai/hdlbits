@@ -31,7 +31,8 @@ esac
 
 report_dir="build/reports"
 deps_dir="build/deps"
-mkdir -p "${report_dir}" "${deps_dir}"
+metrics_dir="build/metrics"
+mkdir -p "${report_dir}" "${deps_dir}" "${metrics_dir}"
 
 tmp_json="${report_dir}/iverilog_${mode}_runs.jsonl"
 : > "${tmp_json}"
@@ -87,5 +88,11 @@ python3 -m tools.report_utils jsonl-to-json \
   --output "${report_dir}/iverilog_${mode}_report.json"
 
 rm -f "${tmp_json}"
+
+mkdir -p "${metrics_dir}"
+python3 -m tools.metrics iverilog \
+  --report "${report_dir}/iverilog_${mode}_report.json" \
+  --stage "${mode}" \
+  --output "${metrics_dir}/${mode}_metrics.json"
 
 exit ${overall_rc}

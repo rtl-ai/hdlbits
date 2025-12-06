@@ -4,6 +4,7 @@ stages:
   - elaborate
   - synth
   - test
+  - report
   - secret-detection
 
 variables:
@@ -34,6 +35,10 @@ compile:iverilog:
     when: always
     paths:
       - build/reports
+      - build/metrics
+    reports:
+      metrics:
+        - build/metrics/compile_metrics.json
     expire_in: 1 week
 
 elaborate:iverilog:
@@ -46,8 +51,12 @@ elaborate:iverilog:
     paths:
       - build/elab
       - build/reports
+      - build/metrics
     expire_in: 1 week
     when: always
+    reports:
+      metrics:
+        - build/metrics/elaborate_metrics.json
 
 synth:yosys:
   stage: synth
@@ -64,8 +73,12 @@ synth:yosys:
     paths:
       - build/synth
       - build/reports
+      - build/metrics
     expire_in: 1 week
     when: always
+    reports:
+      metrics:
+        - build/metrics/synth_metrics.json
 
 unit:test:
   stage: test
@@ -73,10 +86,42 @@ unit:test:
   before_script:
     - pip install --no-cache-dir pytest pytest-cov
   script:
-    - pytest --cov=tools --cov-report=term --cov-report=xml --cov-fail-under=100
+    - mkdir -p build/reports build/metrics
+    - set +e
+    - pytest --cov=tools --cov-report=term --cov-report=xml --cov-fail-under=100 --junitxml build/reports/pytest-junit.xml
+    - test_rc=$?
+    - set -e
+    - python3 -m tools.metrics pytest --junit build/reports/pytest-junit.xml --stage test --output build/metrics/test_metrics.json
+    - exit $test_rc
   artifacts:
     when: always
     paths:
       - coverage.xml
       - .coverage
+      - build/reports
+      - build/metrics
+    reports:
+      metrics:
+        - build/metrics/test_metrics.json
   needs: []
+
+metrics:summary:
+  stage: report
+  image: python:3.11-slim
+  needs:
+    - job: compile:iverilog
+      artifacts: true
+    - job: elaborate:iverilog
+      artifacts: true
+    - job: synth:yosys
+      artifacts: true
+    - job: unit:test
+      artifacts: true
+  script:
+    - mkdir -p build/metrics
+    - python3 -m tools.metrics summary --inputs build/metrics/compile_metrics.json build/metrics/elaborate_metrics.json build/metrics/synth_metrics.json build/metrics/test_metrics.json --output build/metrics/summary.md --post-comment
+    - if [ -n "${CI_JOB_SUMMARY:-}" ]; then cat build/metrics/summary.md >> "${CI_JOB_SUMMARY}"; fi
+  artifacts:
+    when: always
+    paths:
+      - build/metrics/summary.md
