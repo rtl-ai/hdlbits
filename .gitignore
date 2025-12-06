@@ -2,3 +2,14 @@ build/
 __pycache__/
 .coverage
 coverage.xml
+*.env
+*.env.*
+.env.local
+secrets/
+credentials/
+*.key
+*.pem
+*.crt
+id_rsa*
+config/local.*
+.vscode/settings.json

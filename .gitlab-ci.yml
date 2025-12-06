@@ -4,8 +4,8 @@ stages:
   - elaborate
   - synth
   - test
-  - report
   - secret-detection
+  - report
 
 variables:
   PYTHONUNBUFFERED: "1"
@@ -106,22 +106,74 @@ unit:test:
   needs: []
 
 metrics:summary:
-  stage: report
+  stage: secret-detection
   image: python:3.11-slim
+  rules:
+    - when: always
   needs:
     - job: compile:iverilog
       artifacts: true
+      optional: true
     - job: elaborate:iverilog
       artifacts: true
+      optional: true
     - job: synth:yosys
       artifacts: true
+      optional: true
     - job: unit:test
       artifacts: true
+      optional: true
+    - job: secret_detection
+      artifacts: true
+      optional: true
+    - job: sast
+      artifacts: true
+      optional: true
+    - job: trufflehog:diff-scan
+      artifacts: true
+      optional: true
   script:
     - mkdir -p build/metrics
-    - python3 -m tools.metrics summary --inputs build/metrics/compile_metrics.json build/metrics/elaborate_metrics.json build/metrics/synth_metrics.json build/metrics/test_metrics.json --output build/metrics/summary.md --post-comment
+    - inputs=(build/metrics/compile_metrics.json build/metrics/elaborate_metrics.json build/metrics/synth_metrics.json build/metrics/test_metrics.json)
+    - if [ -f build/reports/trufflehog.json ]; then python3 -m tools.metrics trufflehog --report build/reports/trufflehog.json --stage secret-detection --output build/metrics/trufflehog_metrics.json; inputs+=("build/metrics/trufflehog_metrics.json"); fi
+    - if [ -f gl-secret-detection-report.json ]; then python3 -m tools.metrics secret-detection --report gl-secret-detection-report.json --stage secret-detection --output build/metrics/secret-detection.json; inputs+=("build/metrics/secret-detection.json"); fi
+    - if [ -f gl-sast-report.json ]; then python3 -m tools.metrics sast --report gl-sast-report.json --stage secret-detection --output build/metrics/sast.json; inputs+=("build/metrics/sast.json"); fi
+    - python3 -m tools.metrics summary --inputs "${inputs[@]}" --output build/metrics/summary.md --post-comment
     - if [ -n "${CI_JOB_SUMMARY:-}" ]; then cat build/metrics/summary.md >> "${CI_JOB_SUMMARY}"; fi
   artifacts:
     when: always
     paths:
       - build/metrics/summary.md
+
+trufflehog:diff-scan:
+  stage: secret-detection
+  image: python:3.11-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - when: never
+  before_script:
+    - apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates curl && apt-get clean && rm -rf /var/lib/apt/lists/*
+    - TRUFFLEHOG_VERSION="3.91.2"
+    - TRUFFLEHOG_SHA256="72c1d5b465878887178c33063ef2893b9f1529e79af7f24169fed52868b2c056"
+    - curl -fsSLO "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
+    - echo "${TRUFFLEHOG_SHA256}  trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
+    - tar xzf "trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin trufflehog
+    - trufflehog --version
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+  script:
+    - "set -euo pipefail"
+    - "mkdir -p build/reports"
+    - 'BASE_SHA="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"'
+    - 'if ! git rev-parse --verify "${BASE_SHA}^{commit}" >/dev/null 2>&1; then echo "Warning: BASE_SHA ${BASE_SHA} not found, falling back to HEAD~50" >&2; BASE_SHA="$(git rev-parse HEAD~50)"; fi'
+    - 'echo "Scanning from ${BASE_SHA} to ${CI_COMMIT_SHA:-HEAD}"'
+    - "set +e"
+    - 'trufflehog git file:///builds/rtl6134708/rtl_code/hdlbits --since-commit "$BASE_SHA" --branch HEAD --fail --json > build/reports/trufflehog.json'
+    - "SCAN_RC=$?"
+    - "set -e"
+    - 'if [ ${SCAN_RC} -ne 0 ]; then echo "TruffleHog detected secrets or failed (rc=${SCAN_RC}). See build/reports/trufflehog.json"; exit ${SCAN_RC}; fi'
+  artifacts:
+    when: always
+    paths:
+      - build/reports/trufflehog.json
+    expire_in: 1 week
