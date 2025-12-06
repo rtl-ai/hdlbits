@@ -8,6 +8,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+from collections import Counter
 from urllib import error, parse, request
 
 
@@ -65,6 +66,32 @@ def _load_report_entries(report_path: Path) -> List[dict]:
     return raw
 
 
+def _load_json_lines_or_list(report_path: Path) -> List[dict]:
+    """Load JSON array or NDJSON list; returns empty list when missing or invalid."""
+    if not report_path.exists():
+        print(f"Warning: report not found: {report_path}", file=sys.stderr)
+        return []
+    text = report_path.read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    entries: List[dict] = []
+    for idx, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed_line = json.loads(line)
+            if isinstance(parsed_line, dict):
+                entries.append(parsed_line)
+        except json.JSONDecodeError:
+            print(f"Warning: skipping invalid JSON at line {idx} in {report_path}", file=sys.stderr)
+    return entries
+
+
 def _write_metrics(metrics: Iterable[dict], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = {"metrics": list(metrics)}
@@ -110,7 +137,7 @@ def _encode_project(project_id: str) -> str:
     return parse.quote(str(project_id), safe="")
 
 
-def _fetch_stage_links(project_id: str, pipeline_id: str, api: str, token: str, header: str) -> Dict[str, str]:
+def _fetch_stage_links(project_id: str, pipeline_id: str, api: str, token: str, header: str) -> Dict[str, str]:  # pragma: no cover - network
     """Return a map of stage -> job web URL for the pipeline."""
     encoded_project = _encode_project(project_id)
     url = f"{api}/projects/{encoded_project}/pipelines/{pipeline_id}/jobs?per_page=100"
@@ -323,6 +350,92 @@ def _pytest_metrics(junit_path: Path, stage: str) -> List[dict]:
     return metrics
 
 
+def _trufflehog_metrics(report_path: Path, stage: str) -> List[dict]:
+    findings = _load_json_lines_or_list(report_path)
+    total = len(findings)
+    detectors: Counter[str] = Counter()
+    for finding in findings:
+        detector = finding.get("DetectorName") or finding.get("Detector") or finding.get("detector") or "unknown"
+        detectors[str(detector)] += 1
+    metrics = [
+        _make_metric("trufflehog_findings_total", total, stage, labels={"tool": "trufflehog"}),
+    ]
+    for detector, count in sorted(detectors.items()):
+        metrics.append(
+            _make_metric(
+                "trufflehog_findings_by_detector",
+                count,
+                stage,
+                labels={"tool": "trufflehog", "detector": detector},
+            )
+        )
+    return metrics
+
+
+def _secret_detection_metrics(report_path: Path, stage: str) -> List[dict]:
+    if not report_path.exists():
+        print(f"Warning: secret detection report not found: {report_path}", file=sys.stderr)
+        return []
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Warning: unable to parse secret detection report {report_path}: {exc}", file=sys.stderr)
+        return []
+    secrets = payload.get("secrets", [])
+    if not isinstance(secrets, list):
+        print(f"Warning: secret detection report missing 'secrets' list: {report_path}", file=sys.stderr)
+        secrets = []
+    total = len(secrets)
+    categories: Counter[str] = Counter()
+    for secret in secrets:
+        category = secret.get("category") or secret.get("kind") or "unknown"
+        categories[str(category)] += 1
+    metrics = [
+        _make_metric("secret_detection_findings_total", total, stage, labels={"tool": "gitlab-secret-detection"}),
+    ]
+    for category, count in sorted(categories.items()):
+        metrics.append(
+            _make_metric(
+                "secret_detection_findings_by_category",
+                count,
+                stage,
+                labels={"tool": "gitlab-secret-detection", "category": category},
+            )
+        )
+    return metrics
+
+
+def _sast_metrics(report_path: Path, stage: str) -> List[dict]:
+    if not report_path.exists():
+        print(f"Warning: SAST report not found: {report_path}", file=sys.stderr)
+        return []
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"Warning: unable to parse SAST report {report_path}: {exc}", file=sys.stderr)
+        return []
+    vulns = payload.get("vulnerabilities", [])
+    if not isinstance(vulns, list):
+        print(f"Warning: SAST report missing 'vulnerabilities' list: {report_path}", file=sys.stderr)
+        vulns = []
+    total = len(vulns)
+    severity_counts: Counter[str] = Counter()
+    for vuln in vulns:
+        severity = vuln.get("severity") or "unknown"
+        severity_counts[str(severity).lower()] += 1
+    metrics = [_make_metric("sast_vulnerabilities_total", total, stage, labels={"tool": "sast"})]
+    for severity, count in sorted(severity_counts.items()):
+        metrics.append(
+            _make_metric(
+                "sast_vulnerabilities_by_severity",
+                count,
+                stage,
+                labels={"tool": "sast", "severity": severity},
+            )
+        )
+    return metrics
+
+
 def _cmd_iverilog(args: argparse.Namespace) -> int:
     metrics = _iverilog_metrics(Path(args.report), args.stage)
     _write_metrics(metrics, Path(args.output))
@@ -341,10 +454,33 @@ def _cmd_pytest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_trufflehog(args: argparse.Namespace) -> int:
+    metrics = _trufflehog_metrics(Path(args.report), args.stage)
+    _write_metrics(metrics, Path(args.output))
+    return 0
+
+
+def _cmd_secret_detection(args: argparse.Namespace) -> int:
+    metrics = _secret_detection_metrics(Path(args.report), args.stage)
+    _write_metrics(metrics, Path(args.output))
+    return 0
+
+
+def _cmd_sast(args: argparse.Namespace) -> int:
+    metrics = _sast_metrics(Path(args.report), args.stage)
+    _write_metrics(metrics, Path(args.output))
+    return 0
+
+
 def _cmd_summary(args: argparse.Namespace) -> int:
     collected: List[dict] = []
+    missing_inputs = 0
     for path_str in args.inputs:
-        collected.extend(_load_metrics_payload(Path(path_str)))
+        path = Path(path_str)
+        metrics = _load_metrics_payload(path)
+        if not metrics:
+            missing_inputs += 1
+        collected.extend(metrics)
     token, header, _ = _resolve_api_auth()
     stage_links: Dict[str, str] = {}
     project_id = os.environ.get("CI_PROJECT_ID")
@@ -358,10 +494,12 @@ def _cmd_summary(args: argparse.Namespace) -> int:
     out_path.write_text(markdown, encoding="utf-8")
     if args.post_comment:
         _post_mr_comment(markdown)
+    if missing_inputs:
+        print(f"Warning: {missing_inputs} metrics inputs were missing or empty.", file=sys.stderr)
     return 0
 
 
-def _find_mr_iid_for_branch(api: str, project_id: str, branch: str, token: str, header: str) -> str | None:
+def _find_mr_iid_for_branch(api: str, project_id: str, branch: str, token: str, header: str) -> str | None:  # pragma: no cover - network
     encoded_branch = parse.quote_plus(branch)
     encoded_project = _encode_project(project_id)
     url = f"{api}/projects/{encoded_project}/merge_requests?state=opened&source_branch={encoded_branch}"
@@ -397,7 +535,7 @@ def _find_mr_iid_for_branch(api: str, project_id: str, branch: str, token: str, 
     return None
 
 
-def _post_mr_comment(body: str) -> bool:
+def _post_mr_comment(body: str) -> bool:  # pragma: no cover - network
     project_id = os.environ.get("CI_PROJECT_ID")
     mr_iid = os.environ.get("CI_MERGE_REQUEST_IID")
     branch = os.environ.get("CI_COMMIT_BRANCH")
@@ -472,6 +610,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     pytest_parser.add_argument("--stage", required=True, help="Stage label (e.g., test).")
     pytest_parser.add_argument("--output", required=True, help="Path to write metrics JSON.")
     pytest_parser.set_defaults(func=_cmd_pytest)
+
+    trufflehog = subparsers.add_parser("trufflehog", help="Generate metrics from trufflehog JSON/NDJSON output.")
+    trufflehog.add_argument("--report", required=True, help="Path to trufflehog JSON report.")
+    trufflehog.add_argument("--stage", required=True, help="Stage label (e.g., secret-detection).")
+    trufflehog.add_argument("--output", required=True, help="Path to write metrics JSON.")
+    trufflehog.set_defaults(func=_cmd_trufflehog)
+
+    secret_detection = subparsers.add_parser("secret-detection", help="Generate metrics from GitLab secret detection report.")
+    secret_detection.add_argument("--report", required=True, help="Path to gl-secret-detection-report.json.")
+    secret_detection.add_argument("--stage", required=True, help="Stage label (e.g., secret-detection).")
+    secret_detection.add_argument("--output", required=True, help="Path to write metrics JSON.")
+    secret_detection.set_defaults(func=_cmd_secret_detection)
+
+    sast_parser = subparsers.add_parser("sast", help="Generate metrics from GitLab SAST report.")
+    sast_parser.add_argument("--report", required=True, help="Path to gl-sast-report.json.")
+    sast_parser.add_argument("--stage", required=True, help="Stage label (e.g., secret-detection).")
+    sast_parser.add_argument("--output", required=True, help="Path to write metrics JSON.")
+    sast_parser.set_defaults(func=_cmd_sast)
 
     summary = subparsers.add_parser("summary", help="Render a markdown summary from metrics JSON files.")
     summary.add_argument("--inputs", nargs="+", required=True, help="List of metrics JSON files.")
