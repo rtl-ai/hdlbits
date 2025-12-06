@@ -90,10 +90,14 @@ def jsonl_to_json(input_path: Path, output_path: Path) -> None:
     data = []
     if input_path.exists():
         with input_path.open("r", encoding="utf-8") as handle:
-            for line in handle:
+            for idx, line in enumerate(handle, start=1):
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     data.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    print(f"Warning: skipping invalid JSON at line {idx}: {exc}", file=sys.stderr)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, indent=2)
