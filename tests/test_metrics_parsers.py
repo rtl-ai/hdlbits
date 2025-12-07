@@ -272,13 +272,18 @@ def test_format_markdown_summary_env(monkeypatch) -> None:
     monkeypatch.setenv("CI_PIPELINE_URL", "http://ci/p/123")
     monkeypatch.setenv("CI_COMMIT_SHA", "abcdef012345")
     monkeypatch.setenv("CI_PROJECT_URL", "http://ci/proj")
+    tmpdir = Path(".").resolve()
+    failing_log = tmpdir / "fail.log"
+    failing_log.write_text("error: failed here\n", encoding="utf-8")
     metrics_list = [
         metrics._make_metric("warnings", 0, "compile", labels={"tool": "iverilog"}),
         metrics._make_metric("errors", 1, "compile", labels={"tool": "iverilog"}),
+        metrics._make_metric("iverilog_failed", 1, "compile", labels={"tool": "iverilog", "source": "foo.v", "log_path": str(failing_log)}),
     ]
     rendered = metrics._format_markdown_summary(metrics_list, stage_links={"compile": "http://job"})
     assert "Pipeline:" in rendered
     assert "issues present" in rendered
+    assert "failed here" in rendered
 
     monkeypatch.delenv("CI_PROJECT_URL", raising=False)
     rendered_no_commit_url = metrics._format_markdown_summary(metrics_list)

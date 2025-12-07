@@ -6,12 +6,12 @@ module top_module ( input a, input b, output out );
         .in2(b),
         .out(out)
     );
-    
+
 endmodule
 
 // below part is for only compile, not for HDLBits Site Answers.
 module mod_a ( input in1, input in2, output out );
 
-assign out = in1 | in2;
+assign out = in1 | ~in2;
 
 endmodule
