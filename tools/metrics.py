@@ -121,6 +121,20 @@ def _format_label_str(labels: dict) -> str:
     return ", ".join(f"{k}={v}" for k, v in sorted(extra.items()))
 
 
+def _extract_first_error_line(log_path: Path) -> str:
+    """Return the first line that contains 'error' (case-insensitive) from a log file."""
+    if not log_path.exists():
+        return ""
+    try:
+        with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                if "error" in line.lower():
+                    return line.strip()
+    except OSError:
+        return ""
+    return ""
+
+
 def _resolve_api_auth() -> tuple[str | None, str, str]:
     """Return (token, header, source) preferring MR_COMMENT_TOKEN then CI_JOB_TOKEN."""
     pat_token = os.environ.get("MR_COMMENT_TOKEN")
@@ -262,6 +276,29 @@ def _format_markdown_summary(metrics: List[dict], stage_links: Dict[str, str] | 
             labels_str = _format_label_str(labels)
             lines.append(f"| {tool} | {name} | {value} | {unit} | {labels_str} |")
         lines.append("")
+        failing_with_logs = [
+            entry
+            for entry in entries
+            if entry.get("name", "").endswith("_failed") and entry.get("labels", {}).get("log_path")
+        ]
+        if failing_with_logs:
+            lines.append("| Failing source | Log | Error |")
+            lines.append("| --- | --- | --- |")
+            for entry in failing_with_logs:
+                labels = entry.get("labels", {}) or {}
+                log_path = labels.get("log_path", "")
+                source = labels.get("source", log_path or "-")
+                log_link = log_path
+                if stage_links and stage in stage_links and log_path:
+                    job_url = stage_links[stage].rstrip("/")
+                    log_link = f"{job_url}/artifacts/file/{log_path}"
+                snippet = _extract_first_error_line(Path(log_path)) if log_path else ""
+                snippet = snippet or "-"
+                if log_link:
+                    lines.append(f"| {source} | [log]({log_link}) | {snippet} |")
+                else:
+                    lines.append(f"| {source} | {log_path or '-'} | {snippet} |")
+            lines.append("")
         lines.append("</details>")
         lines.append("")
 
@@ -276,6 +313,7 @@ def _iverilog_metrics(report_path: Path, stage: str) -> List[dict]:
     warn_count = 0
     err_count = 0
     missing_logs = 0
+    failing_metrics: List[dict] = []
     for entry in entries:
         log_path = Path(entry.get("log_path", ""))
         w, e, missing = _count_log_messages(log_path)
@@ -283,6 +321,19 @@ def _iverilog_metrics(report_path: Path, stage: str) -> List[dict]:
         err_count += e
         if missing:
             missing_logs += 1
+        if entry.get("status") != "passed":
+            failing_metrics.append(
+                _make_metric(
+                    "iverilog_failed",
+                    1,
+                    stage,
+                    labels={
+                        "tool": "iverilog",
+                        "source": entry.get("source", "-"),
+                        "log_path": str(log_path),
+                    },
+                )
+            )
 
     metrics = [
         _make_metric("iverilog_items_total", total, stage, labels={"tool": "iverilog"}),
@@ -292,6 +343,7 @@ def _iverilog_metrics(report_path: Path, stage: str) -> List[dict]:
     ]
     if missing_logs:
         metrics.append(_make_metric("iverilog_logs_missing", missing_logs, stage, labels={"tool": "iverilog"}))
+    metrics.extend(failing_metrics)
     return metrics
 
 
@@ -302,6 +354,7 @@ def _yosys_metrics(report_path: Path, stage: str) -> List[dict]:
     warn_count = 0
     err_count = 0
     missing_logs = 0
+    failing_metrics: List[dict] = []
     for entry in entries:
         log_path = Path(entry.get("log_path", ""))
         w, e, missing = _count_log_messages(log_path)
@@ -309,6 +362,19 @@ def _yosys_metrics(report_path: Path, stage: str) -> List[dict]:
         err_count += e
         if missing:
             missing_logs += 1
+        if entry.get("status") != "passed":
+            failing_metrics.append(
+                _make_metric(
+                    "yosys_failed",
+                    1,
+                    stage,
+                    labels={
+                        "tool": "yosys",
+                        "source": entry.get("source", "-"),
+                        "log_path": str(log_path),
+                    },
+                )
+            )
 
     metrics = [
         _make_metric("yosys_items_total", total, stage, labels={"tool": "yosys"}),
@@ -318,6 +384,7 @@ def _yosys_metrics(report_path: Path, stage: str) -> List[dict]:
     ]
     if missing_logs:
         metrics.append(_make_metric("yosys_logs_missing", missing_logs, stage, labels={"tool": "yosys"}))
+    metrics.extend(failing_metrics)
     return metrics
 
 
