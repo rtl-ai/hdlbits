@@ -13,6 +13,7 @@ assign q = w_dff_q2;
 
 endmodule
 
+// below part is for only compile, not for HDLBits Site Answers.
 module my_dff(
     input clk,
     input d,
