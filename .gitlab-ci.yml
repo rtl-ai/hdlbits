@@ -29,6 +29,10 @@ compile:iverilog:
   stage: compile
   image: hdlc/iverilog:latest
   needs: ["generate:filelist"]
+  cache:
+    key: "${CI_COMMIT_REF_SLUG}-iverilog"
+    paths:
+      - build/cache
   script:
     - ./scripts/run_iverilog_checks.sh listfile/rtl.f compile
   artifacts:
@@ -45,6 +49,10 @@ elaborate:iverilog:
   stage: elaborate
   image: hdlc/iverilog:latest
   needs: ["generate:filelist"]
+  cache:
+    key: "${CI_COMMIT_REF_SLUG}-iverilog"
+    paths:
+      - build/cache
   script:
     - ./scripts/run_iverilog_checks.sh listfile/rtl.f elaborate
   artifacts:

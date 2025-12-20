@@ -44,6 +44,7 @@ def build_iverilog_entry(
     log_path: Path,
     dep_path: Optional[Path],
     output_artifact: Optional[str],
+    duration_secs: Optional[float] = None,
 ) -> dict:
     entry = {
         "source": source,
@@ -56,6 +57,8 @@ def build_iverilog_entry(
     }
     if output_artifact:
         entry["output_artifact"] = output_artifact
+    if duration_secs is not None:
+        entry["duration_secs"] = duration_secs
     return entry
 
 
@@ -66,6 +69,7 @@ def build_yosys_entry(
     command: str,
     log_path: Path,
     output_artifact: Optional[str],
+    duration_secs: Optional[float] = None,
 ) -> dict:
     entry = {
         "source": source,
@@ -76,6 +80,8 @@ def build_yosys_entry(
     }
     if output_artifact:
         entry["output_artifact"] = output_artifact
+    if duration_secs is not None:
+        entry["duration_secs"] = duration_secs
     return entry
 
 
@@ -157,6 +163,7 @@ def _cmd_iverilog_entry(args: argparse.Namespace) -> int:
         log_path=Path(args.log_path),
         dep_path=Path(args.dep_path) if args.dep_path else None,
         output_artifact=args.output_artifact,
+        duration_secs=args.duration_secs,
     )
     append_jsonl_entry(Path(args.jsonl), entry)
     return 0
@@ -169,6 +176,7 @@ def _cmd_yosys_entry(args: argparse.Namespace) -> int:
         command=args.command,
         log_path=Path(args.log_path),
         output_artifact=args.output_artifact,
+        duration_secs=args.duration_secs,
     )
     append_jsonl_entry(Path(args.jsonl), entry)
     return 0
@@ -214,6 +222,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     iverilog.add_argument("--log-path", required=True)
     iverilog.add_argument("--dep-path")
     iverilog.add_argument("--output-artifact")
+    iverilog.add_argument("--duration-secs", type=float)
     iverilog.set_defaults(func=_cmd_iverilog_entry)
 
     yosys_entry = subparsers.add_parser("yosys-entry", help="Append a yosys entry to a JSONL file.")
@@ -223,6 +232,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     yosys_entry.add_argument("--command", required=True)
     yosys_entry.add_argument("--log-path", required=True)
     yosys_entry.add_argument("--output-artifact")
+    yosys_entry.add_argument("--duration-secs", type=float)
     yosys_entry.set_defaults(func=_cmd_yosys_entry)
 
     jsonl = subparsers.add_parser("jsonl-to-json", help="Convert a JSONL file to JSON array.")

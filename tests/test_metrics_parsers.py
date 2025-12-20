@@ -130,11 +130,13 @@ def test_eda_and_pytest_metrics(tmp_path: Path) -> None:
     names = {m["name"]: m["value"] for m in iv_metrics}
     assert names["iverilog_items_total"] == 3
     assert names["iverilog_items_failed"] == 2
+    assert any(m["name"] == "iverilog_log_summary" for m in iv_metrics)
 
     yosys_report = tmp_path / "yosys.json"
     yosys_report.write_text('[{"status":"passed","log_path":"%s"},{"status":"failed","log_path":"%s"}]' % (log, missing_log), encoding="utf-8")
     yosys_metrics = metrics._yosys_metrics(yosys_report, "synth")
     assert any(m["name"] == "yosys_warnings" for m in yosys_metrics)
+    assert any(m["name"] == "yosys_log_summary" for m in yosys_metrics)
 
     junit = tmp_path / "junit.xml"
     junit.write_text(
@@ -274,11 +276,12 @@ def test_format_markdown_summary_env(monkeypatch) -> None:
     monkeypatch.setenv("CI_PROJECT_URL", "http://ci/proj")
     tmpdir = Path(".").resolve()
     failing_log = tmpdir / "fail.log"
-    failing_log.write_text("error: failed here\n", encoding="utf-8")
+    failing_log.write_text("error: failed here\nwarning: minor\n", encoding="utf-8")
     metrics_list = [
         metrics._make_metric("warnings", 0, "compile", labels={"tool": "iverilog"}),
         metrics._make_metric("errors", 1, "compile", labels={"tool": "iverilog"}),
         metrics._make_metric("iverilog_failed", 1, "compile", labels={"tool": "iverilog", "source": "foo.v", "log_path": str(failing_log)}),
+        metrics._make_metric("iverilog_log_summary", 1, "compile", labels={"tool": "iverilog", "source": "foo.v", "log_path": str(failing_log), "warnings": "1", "errors": "1"}),
     ]
     rendered = metrics._format_markdown_summary(metrics_list, stage_links={"compile": "http://job"})
     assert "Pipeline:" in rendered
