@@ -2,6 +2,7 @@ build/
 __pycache__/
 .coverage
 coverage.xml
+fail.log
 *.env
 *.env.*
 .env.local
