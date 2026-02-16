@@ -106,6 +106,31 @@ def test_count_and_load_helpers(tmp_path: Path, capsys) -> None:
     assert loaded[0]["name"] == "x"
 
 
+def test_make_metric_coerces_string_values() -> None:
+    metric = metrics._make_metric("x", "1.5", "stage")
+    assert metric["value"] == 1.5
+
+    metric = metrics._make_metric("x", "not-a-number", "stage")
+    assert metric["value"] == "not-a-number"
+
+
+def test_extract_first_error_line_handles_missing_and_oserror(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.log"
+    assert metrics._extract_first_error_line(missing) == ("", None)
+
+    no_error = tmp_path / "no_error.log"
+    no_error.write_text("all good\n", encoding="utf-8")
+    assert metrics._extract_first_error_line(no_error) == ("", None)
+
+    dir_path = tmp_path / "adir"
+    dir_path.mkdir()
+    assert metrics._extract_first_error_line(dir_path) == ("", None)
+
+    has_error = tmp_path / "has_error.log"
+    has_error.write_text("ok\nERROR: boom\n", encoding="utf-8")
+    assert metrics._extract_first_error_line(has_error) == ("ERROR: boom", 2)
+
+
 def test_markdown_summary_and_label_str(tmp_path: Path) -> None:
     entries = [
         metrics._make_metric("warnings", 1, "compile", labels={"tool": "iverilog", "extra": "y"}),
@@ -114,6 +139,30 @@ def test_markdown_summary_and_label_str(tmp_path: Path) -> None:
     summary = metrics._format_markdown_summary(entries, stage_links={"compile": "http://example.com"})
     assert "issues present" in summary
     assert "extra=y" in summary
+
+
+def test_markdown_summary_duration_table_and_defensive_log_link(tmp_path: Path) -> None:
+    missing_log = tmp_path / "missing.log"
+    entries = [
+        metrics._make_metric("iverilog_duration_secs", "1.5", "compile", labels={"tool": "iverilog"}),
+        metrics._make_metric("iverilog_duration_secs", "not-a-number", "compile", labels={"tool": "iverilog"}),
+        metrics._make_metric(
+            "iverilog_log_summary",
+            1,
+            "compile",
+            labels={
+                "tool": "iverilog",
+                "log_path": str(missing_log),
+                "warnings": "1",
+                "errors": "0",
+            },
+        ),
+    ]
+    summary = metrics._format_markdown_summary(entries, stage_links={"compile": ""})
+    assert "Duration (s)" in summary
+    assert "**total**" in summary
+    # stage_links can be malformed; ensure we still render the raw log path without crashing.
+    assert str(missing_log) in summary
 
 
 def test_eda_and_pytest_metrics(tmp_path: Path) -> None:
