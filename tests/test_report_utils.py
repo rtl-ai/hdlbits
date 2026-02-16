@@ -52,6 +52,22 @@ def test_build_iverilog_entry(tmp_path: Path) -> None:
     assert entry["log_size_bytes"] == log_path.stat().st_size
 
 
+def test_build_iverilog_entry_with_duration(tmp_path: Path) -> None:
+    log_path = tmp_path / "log.txt"
+    log_path.write_text("log")
+    entry = report_utils.build_iverilog_entry(
+        source="a.v",
+        mode="compile",
+        status="passed",
+        command="iverilog -tnull",
+        log_path=log_path,
+        dep_path=None,
+        output_artifact=None,
+        duration_secs=0.125,
+    )
+    assert entry["duration_secs"] == 0.125
+
+
 def test_build_iverilog_entry_with_output(tmp_path: Path) -> None:
     log_path = tmp_path / "log.txt"
     log_path.touch()
@@ -78,6 +94,20 @@ def test_build_yosys_entry(tmp_path: Path) -> None:
         output_artifact="out.json",
     )
     assert entry["output_artifact"] == "out.json"
+
+
+def test_build_yosys_entry_with_duration(tmp_path: Path) -> None:
+    log_path = tmp_path / "yosys.log"
+    log_path.write_text("log")
+    entry = report_utils.build_yosys_entry(
+        source="a.v",
+        status="passed",
+        command="yosys",
+        log_path=log_path,
+        output_artifact=None,
+        duration_secs=1.0,
+    )
+    assert entry["duration_secs"] == 1.0
 
 
 def test_append_and_convert_jsonl(tmp_path: Path) -> None:
